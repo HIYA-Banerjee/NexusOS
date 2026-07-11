@@ -1,0 +1,1127 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum GlobalRole {
+  USER
+  ADMIN
+  SUPER_ADMIN
+  SYSTEM
+}
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+  BILLING_ADMIN
+}
+
+enum TeamRole {
+  LEAD
+  MEMBER
+}
+
+enum OrgPlan {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  CANCELLED
+}
+
+enum AuthProvider {
+  LOCAL
+  GOOGLE
+  GITHUB
+  MICROSOFT
+}
+
+enum ProjectType {
+  SCRUM
+  KANBAN
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+  COMPLETED
+}
+
+enum SprintStatus {
+  PLANNING
+  ACTIVE
+  COMPLETED
+}
+
+enum TaskType {
+  EPIC
+  STORY
+  TASK
+  SUBTASK
+  BUG
+}
+
+enum TaskStatus {
+  BACKLOG
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum ChannelType {
+  PUBLIC
+  PRIVATE
+  DM
+  ANNOUNCEMENT
+}
+
+enum MessageType {
+  TEXT
+  FILE
+  SYSTEM
+  VOICE_NOTE
+}
+
+enum DocType {
+  DOCUMENT
+  WIKI
+  NOTE
+  TEMPLATE
+}
+
+enum DocVisibility {
+  PRIVATE
+  TEAM
+  ORG
+  PUBLIC
+}
+
+enum AIConvType {
+  CHAT
+  CODE_ASSISTANT
+  RESEARCH
+  SQL_GENERATOR
+  DOCUMENT_SUMMARIZER
+  CODE_REVIEWER
+  EMAIL_WRITER
+  BRAINSTORM
+}
+
+enum AIAgentType {
+  CODING
+  RESEARCH
+  HR
+  FINANCE
+  PROJECT_MANAGER
+  MEETING
+  DOCUMENTATION
+  CUSTOMER_SUPPORT
+}
+
+enum NotifChannel {
+  IN_APP
+  EMAIL
+  SMS
+  PUSH
+}
+
+enum AuditAction {
+  CREATE
+  READ
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  INVITE
+  PERMISSION_CHANGE
+  EXPORT
+}
+
+enum FileScanStatus {
+  PENDING
+  CLEAN
+  INFECTED
+  ERROR
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum LeaveType {
+  ANNUAL
+  SICK
+  CASUAL
+  MATERNITY
+  PATERNITY
+  UNPAID
+}
+
+enum ExpenseStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  REIMBURSED
+}
+
+enum WorkflowTrigger {
+  TASK_CREATED
+  TASK_STATUS_CHANGED
+  TASK_ASSIGNED
+  MESSAGE_SENT
+  MEMBER_JOINED
+  FORM_SUBMITTED
+  SCHEDULE
+  WEBHOOK
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTHENTICATION & IDENTITY
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id                   String        @id @default(uuid())
+  email                String        @unique
+  displayName          String?
+  firstName            String?
+  lastName             String?
+  avatar               String?
+  bio                  String?
+  timezone             String?       @default("UTC")
+  locale               String?       @default("en")
+  role                 GlobalRole    @default(USER)
+  // Auth
+  passwordHash         String?
+  emailVerified        Boolean       @default(false)
+  emailVerifiedAt      DateTime?
+  twoFactorEnabled     Boolean       @default(false)
+  twoFactorSecret      String?
+  backupCodes          String[]
+  failedLoginAttempts  Int           @default(0)
+  lockedUntil          DateTime?
+  lastLogin            DateTime?
+  lastLoginIp          String?
+  // Refresh token rotation
+  refreshTokenVersion  Int           @default(0)
+  hashedRefreshToken   String?
+  // Timestamps
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  deletedAt            DateTime?
+
+  // Relations
+  oauthAccounts        OAuthAccount[]
+  sessions             UserSession[]
+  apiKeys              ApiKey[]
+  magicLinks           MagicLink[]
+  orgMemberships       OrgMember[]
+  teamMemberships      TeamMember[]
+  ownedOrgs            Organization[]       @relation("OrgOwner")
+  sentInvitations      Invitation[]         @relation("InviteSender")
+  auditLogs            AuditLog[]           @relation("AuditActor")
+  notifications        Notification[]
+  notifPreferences     NotifPreference[]
+  aiConversations      AIConversation[]
+  assignedTasks        Task[]               @relation("TaskAssignee")
+  reportedTasks        Task[]               @relation("TaskReporter")
+  taskComments         TaskComment[]
+  timeLogs             TimeLog[]
+  channelMemberships   ChannelMember[]
+  messages             Message[]
+  sentDMs              DirectMessage[]      @relation("DMSender")
+  receivedDMs          DirectMessage[]      @relation("DMReceiver")
+  documents            Document[]
+  uploadedFiles        File[]
+  leaveRequests        LeaveRequest[]
+  expenses             Expense[]
+  securityEvents       SecurityEvent[]
+  deviceTrusts         DeviceTrust[]
+
+  @@index([email])
+  @@index([role])
+}
+
+model OAuthAccount {
+  id                String       @id @default(uuid())
+  userId            String
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider          AuthProvider
+  providerAccountId String
+  accessToken       String?
+  refreshToken      String?
+  expiresAt         DateTime?
+  createdAt         DateTime     @default(now())
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model UserSession {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ipAddress    String?
+  userAgent    String?
+  deviceName   String?
+  deviceType   String?
+  location     String?
+  expiresAt    DateTime
+  lastActiveAt DateTime  @default(now())
+  revoked      Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model ApiKey {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  keyHash     String    @unique
+  keyPrefix   String
+  scopes      String[]
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  revoked     Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+  @@index([keyHash])
+}
+
+model MagicLink {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([token])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ORGANIZATION & TEAMS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Organization {
+  id          String    @id @default(uuid())
+  name        String
+  slug        String    @unique
+  logo        String?
+  description String?
+  website     String?
+  plan        OrgPlan   @default(FREE)
+  settings    Json?
+  ownerId     String
+  owner       User      @relation("OrgOwner", fields: [ownerId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  members       OrgMember[]
+  teams         Team[]
+  departments   Department[]
+  invitations   Invitation[]
+  projects      Project[]
+  channels      Channel[]
+  documents     Document[]
+  files         File[]
+  folders       Folder[]
+  aiConversations AIConversation[]
+  notifications   Notification[]
+  auditLogs       AuditLog[]
+  featureFlags    FeatureFlag[]
+  workflows       Workflow[]
+  leaveRequests   LeaveRequest[]
+  expenses        Expense[]
+  roles           OrgRole_[]
+
+  @@index([slug])
+  @@index([ownerId])
+}
+
+model OrgMember {
+  id        String    @id @default(uuid())
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      OrgRole   @default(MEMBER)
+  title     String?
+  joinedAt  DateTime  @default(now())
+
+  @@unique([orgId, userId])
+  @@index([userId])
+  @@index([orgId])
+}
+
+model Team {
+  id          String    @id @default(uuid())
+  orgId       String
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  avatar      String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  members     TeamMember[]
+  projects    Project[]    @relation("TeamProjects")
+
+  @@index([orgId])
+}
+
+model TeamMember {
+  teamId    String
+  team      Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      TeamRole @default(MEMBER)
+  joinedAt  DateTime @default(now())
+
+  @@id([teamId, userId])
+  @@index([userId])
+}
+
+model Department {
+  id      String       @id @default(uuid())
+  orgId   String
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name    String
+  headId  String?
+
+  @@index([orgId])
+}
+
+model Invitation {
+  id        String           @id @default(uuid())
+  orgId     String
+  org       Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  email     String
+  role      OrgRole          @default(MEMBER)
+  token     String           @unique
+  status    InvitationStatus @default(PENDING)
+  senderId  String
+  sender    User             @relation("InviteSender", fields: [senderId], references: [id])
+  expiresAt DateTime
+  acceptedAt DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([token])
+  @@index([email])
+  @@index([orgId])
+}
+
+/// Organization-scoped custom RBAC roles
+model OrgRole_ {
+  id          String       @id @default(uuid())
+  orgId       String
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  permissions String[]     // e.g. ["project:read", "task:create"]
+  isDefault   Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+
+  @@unique([orgId, name])
+  @@index([orgId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROJECT MANAGEMENT
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Project {
+  id          String        @id @default(uuid())
+  orgId       String
+  org         Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  teamId      String?
+  team        Team?         @relation("TeamProjects", fields: [teamId], references: [id])
+  name        String
+  key         String        // e.g. "NEXUS", "UI"
+  description String?
+  type        ProjectType   @default(SCRUM)
+  status      ProjectStatus @default(ACTIVE)
+  icon        String?
+  color       String?
+  ownerId     String
+  startDate   DateTime?
+  endDate     DateTime?
+  settings    Json?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  archivedAt  DateTime?
+
+  epics       Epic[]
+  sprints     Sprint[]
+  tasks       Task[]
+  labels      ProjectLabel[]
+  milestones  Milestone[]
+
+  @@unique([orgId, key])
+  @@index([orgId])
+  @@index([teamId])
+}
+
+model Epic {
+  id          String      @id @default(uuid())
+  projectId   String
+  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  status      TaskStatus  @default(BACKLOG)
+  color       String?
+  startDate   DateTime?
+  endDate     DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  tasks       Task[]
+
+  @@index([projectId])
+}
+
+model Sprint {
+  id        String       @id @default(uuid())
+  projectId String
+  project   Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name      String
+  goal      String?
+  status    SprintStatus @default(PLANNING)
+  startDate DateTime?
+  endDate   DateTime?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  tasks     Task[]
+
+  @@index([projectId])
+}
+
+model Milestone {
+  id          String    @id @default(uuid())
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  dueDate     DateTime?
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([projectId])
+}
+
+model ProjectLabel {
+  id        String  @id @default(uuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name      String
+  color     String  @default("#6366f1")
+
+  tasks     TaskLabel[]
+
+  @@unique([projectId, name])
+  @@index([projectId])
+}
+
+model Task {
+  id              String       @id @default(uuid())
+  projectId       String
+  project         Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  epicId          String?
+  epic            Epic?        @relation(fields: [epicId], references: [id])
+  sprintId        String?
+  sprint          Sprint?      @relation(fields: [sprintId], references: [id])
+  parentId        String?
+  parent          Task?        @relation("TaskSubtasks", fields: [parentId], references: [id])
+  subtasks        Task[]       @relation("TaskSubtasks")
+  title           String
+  description     String?
+  type            TaskType     @default(TASK)
+  status          TaskStatus   @default(BACKLOG)
+  priority        TaskPriority @default(MEDIUM)
+  assigneeId      String?
+  assignee        User?        @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  reporterId      String?
+  reporter        User?        @relation("TaskReporter", fields: [reporterId], references: [id])
+  storyPoints     Int?
+  estimatedHours  Float?
+  loggedHours     Float?       @default(0)
+  dueDate         DateTime?
+  position        Float?       // for ordering within columns
+  completedAt     DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  deletedAt       DateTime?
+
+  labels          TaskLabel[]
+  comments        TaskComment[]
+  attachments     TaskAttachment[]
+  timeLogs        TimeLog[]
+  dependencies    TaskDependency[] @relation("DependencyFrom")
+  dependents      TaskDependency[] @relation("DependencyTo")
+
+  @@index([projectId])
+  @@index([sprintId])
+  @@index([epicId])
+  @@index([assigneeId])
+  @@index([status])
+}
+
+model TaskLabel {
+  taskId   String
+  task     Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  labelId  String
+  label    ProjectLabel @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, labelId])
+}
+
+model TaskComment {
+  id        String    @id @default(uuid())
+  taskId    String
+  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User      @relation(fields: [authorId], references: [id])
+  content   String
+  editedAt  DateTime?
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([taskId])
+}
+
+model TaskAttachment {
+  id        String   @id @default(uuid())
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  fileKey   String
+  fileName  String
+  mimeType  String?
+  fileSize  Int?
+  createdAt DateTime @default(now())
+
+  @@index([taskId])
+}
+
+model TimeLog {
+  id          String   @id @default(uuid())
+  taskId      String
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  hours       Float
+  description String?
+  loggedAt    DateTime @default(now())
+
+  @@index([taskId])
+  @@index([userId])
+}
+
+model TaskDependency {
+  fromTaskId String
+  fromTask   Task   @relation("DependencyFrom", fields: [fromTaskId], references: [id], onDelete: Cascade)
+  toTaskId   String
+  toTask     Task   @relation("DependencyTo", fields: [toTaskId], references: [id], onDelete: Cascade)
+  type       String @default("BLOCKS") // BLOCKS, DUPLICATES, RELATES_TO
+
+  @@id([fromTaskId, toTaskId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REAL-TIME COMMUNICATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Channel {
+  id          String      @id @default(uuid())
+  orgId       String
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name        String
+  type        ChannelType @default(PUBLIC)
+  description String?
+  topic       String?
+  icon        String?
+  archived    Boolean     @default(false)
+  createdById String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  members     ChannelMember[]
+  messages    Message[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+}
+
+model ChannelMember {
+  channelId   String
+  channel     Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        String   @default("MEMBER")
+  lastReadAt  DateTime?
+  mutedAt     DateTime?
+  joinedAt    DateTime @default(now())
+
+  @@id([channelId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id             String      @id @default(uuid())
+  channelId      String
+  channel        Channel     @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  authorId       String
+  author         User        @relation(fields: [authorId], references: [id])
+  content        String
+  type           MessageType @default(TEXT)
+  threadParentId String?
+  threadParent   Message?    @relation("Thread", fields: [threadParentId], references: [id])
+  threadReplies  Message[]   @relation("Thread")
+  threadCount    Int         @default(0)
+  fileKey        String?
+  fileName       String?
+  editedAt       DateTime?
+  deletedAt      DateTime?
+  createdAt      DateTime    @default(now())
+
+  reactions      MessageReaction[]
+  mentions       MessageMention[]
+
+  @@index([channelId])
+  @@index([threadParentId])
+  @@index([authorId])
+}
+
+model MessageReaction {
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  @@id([messageId, userId, emoji])
+  @@index([messageId])
+}
+
+model MessageMention {
+  id        String  @id @default(uuid())
+  messageId String
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+
+  @@index([messageId])
+  @@index([userId])
+}
+
+model DirectMessage {
+  id         String    @id @default(uuid())
+  senderId   String
+  sender     User      @relation("DMSender", fields: [senderId], references: [id])
+  receiverId String
+  receiver   User      @relation("DMReceiver", fields: [receiverId], references: [id])
+  content    String
+  type       MessageType @default(TEXT)
+  fileKey    String?
+  readAt     DateTime?
+  deletedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([senderId, receiverId])
+  @@index([receiverId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DOCUMENTS & WIKI
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Document {
+  id         String        @id @default(uuid())
+  orgId      String
+  org        Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  authorId   String
+  author     User          @relation(fields: [authorId], references: [id])
+  parentId   String?
+  parent     Document?     @relation("DocTree", fields: [parentId], references: [id])
+  children   Document[]    @relation("DocTree")
+  title      String
+  content    Json?
+  type       DocType       @default(DOCUMENT)
+  visibility DocVisibility @default(PRIVATE)
+  icon       String?
+  coverImage String?
+  pinned     Boolean       @default(false)
+  locked     Boolean       @default(false)
+  lockedBy   String?
+  archivedAt DateTime?
+  deletedAt  DateTime?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  versions   DocumentVersion[]
+  comments   DocumentComment[]
+
+  @@index([orgId])
+  @@index([authorId])
+  @@index([parentId])
+}
+
+model DocumentVersion {
+  id         String   @id @default(uuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  content    Json
+  authorId   String
+  version    Int
+  createdAt  DateTime @default(now())
+
+  @@unique([documentId, version])
+  @@index([documentId])
+}
+
+model DocumentComment {
+  id         String   @id @default(uuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  authorId   String
+  content    String
+  resolved   Boolean  @default(false)
+  position   Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([documentId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FILE STORAGE
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Folder {
+  id        String       @id @default(uuid())
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  ownerId   String
+  name      String
+  parentId  String?
+  parent    Folder?      @relation("FolderTree", fields: [parentId], references: [id])
+  children  Folder[]     @relation("FolderTree")
+  createdAt DateTime     @default(now())
+
+  files     File[]
+
+  @@index([orgId])
+  @@index([parentId])
+}
+
+model File {
+  id         String         @id @default(uuid())
+  orgId      String
+  org        Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  ownerId    String
+  owner      User           @relation(fields: [ownerId], references: [id])
+  folderId   String?
+  folder     Folder?        @relation(fields: [folderId], references: [id])
+  name       String
+  mimeType   String?
+  size       Int?
+  storageKey String
+  bucket     String         @default("nexusos-files")
+  checksum   String?
+  scanStatus FileScanStatus @default(PENDING)
+  scannedAt  DateTime?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  deletedAt  DateTime?
+
+  @@index([orgId])
+  @@index([ownerId])
+  @@index([folderId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI WORKSPACE
+// ─────────────────────────────────────────────────────────────────────────────
+
+model AIConversation {
+  id        String     @id @default(uuid())
+  orgId     String?
+  org       Organization? @relation(fields: [orgId], references: [id])
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String?
+  type      AIConvType @default(CHAT)
+  model     String     @default("gpt-4o-mini")
+  systemPrompt String?
+  metadata  Json?
+  archived  Boolean    @default(false)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  messages  AIMessage[]
+
+  @@index([userId])
+  @@index([orgId])
+}
+
+model AIMessage {
+  id             String         @id @default(uuid())
+  conversationId String
+  conversation   AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String         // user | assistant | system
+  content        String
+  tokenUsage     Int?
+  model          String?
+  metadata       Json?
+  createdAt      DateTime       @default(now())
+
+  @@index([conversationId])
+}
+
+model AIAgent {
+  id           String      @id @default(uuid())
+  orgId        String?
+  name         String
+  type         AIAgentType
+  description  String?
+  systemPrompt String?
+  model        String      @default("gpt-4o-mini")
+  config       Json?
+  enabled      Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([orgId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String       @id @default(uuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId     String?
+  org       Organization? @relation(fields: [orgId], references: [id])
+  type      String
+  title     String
+  body      String?
+  link      String?
+  metadata  Json?
+  read      Boolean      @default(false)
+  readAt    DateTime?
+  createdAt DateTime     @default(now())
+
+  @@index([userId])
+  @@index([read])
+}
+
+model NotifPreference {
+  id      String       @id @default(uuid())
+  userId  String
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel NotifChannel
+  type    String
+  enabled Boolean      @default(true)
+
+  @@unique([userId, channel, type])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HR MODULE
+// ─────────────────────────────────────────────────────────────────────────────
+
+model LeaveRequest {
+  id          String      @id @default(uuid())
+  orgId       String
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User        @relation(fields: [userId], references: [id])
+  type        LeaveType
+  status      LeaveStatus @default(PENDING)
+  startDate   DateTime
+  endDate     DateTime
+  days        Float
+  reason      String?
+  approvedBy  String?
+  approvedAt  DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([orgId])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FINANCE MODULE
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Expense {
+  id          String        @id @default(uuid())
+  orgId       String
+  org         Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User          @relation(fields: [userId], references: [id])
+  title       String
+  amount      Float
+  currency    String        @default("USD")
+  category    String?
+  status      ExpenseStatus @default(DRAFT)
+  receiptKey  String?
+  notes       String?
+  approvedBy  String?
+  approvedAt  DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([orgId])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WORKFLOW AUTOMATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Workflow {
+  id          String          @id @default(uuid())
+  orgId       String
+  org         Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  trigger     WorkflowTrigger
+  conditions  Json?
+  actions     Json
+  enabled     Boolean         @default(true)
+  lastRunAt   DateTime?
+  runCount    Int             @default(0)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([orgId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECURITY & AUDIT
+// ─────────────────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id          String       @id @default(uuid())
+  actorId     String?
+  actor       User?        @relation("AuditActor", fields: [actorId], references: [id])
+  orgId       String?
+  org         Organization? @relation(fields: [orgId], references: [id])
+  action      AuditAction
+  entity      String
+  entityId    String?
+  payload     Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime     @default(now())
+
+  @@index([actorId])
+  @@index([orgId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
+
+model SecurityEvent {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  type      String   // FAILED_LOGIN, SUSPICIOUS_IP, 2FA_DISABLED, etc.
+  metadata  Json?
+  ipAddress String?
+  severity  String   @default("LOW") // LOW | MEDIUM | HIGH | CRITICAL
+  resolved  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([type])
+}
+
+model DeviceTrust {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fingerprint String
+  deviceName  String?
+  trusted     Boolean  @default(false)
+  trustedAt   DateTime?
+  lastSeenAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, fingerprint])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FEATURE FLAGS & ADMIN
+// ─────────────────────────────────────────────────────────────────────────────
+
+model FeatureFlag {
+  id          String       @id @default(uuid())
+  key         String
+  enabled     Boolean      @default(false)
+  description String?
+  orgId       String?
+  org         Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  rollout     Int          @default(100) // percentage
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@unique([key, orgId])
+  @@index([orgId])
+  @@index([key])
+}
+
+/// Transactional outbox pattern for async event processing
+model OutboxEvent {
+  id          String    @id @default(uuid())
+  aggregate   String
+  aggregateId String
+  eventType   String
+  payload     Json?
+  processed   Boolean   @default(false)
+  processedAt DateTime?
+  error       String?
+  retries     Int       @default(0)
+  createdAt   DateTime  @default(now())
+
+  @@index([aggregate, aggregateId])
+  @@index([processed])
+}
